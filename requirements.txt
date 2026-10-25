@@ -1,0 +1,6 @@
+streamlit
+pandas
+playwright
+beautifulsoup4
+gspread
+oauth2client
