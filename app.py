@@ -11,7 +11,7 @@ search_query = st.text_input("Entrez le nom d'un Pokémon ou d'une carte à cher
 if st.button("🔍 Rechercher sur Cardmarket"):
     if search_query.strip():
         with st.spinner(f"Recherche de '{search_query}' en cours..."):
-            df_res = search_search_cardmarket_pokemon = search_cardmarket_pokemon(search_query) # ou appel de la fonction
+            df_res = search_cardmarket_pokemon(search_query)
             
             if not df_res.empty:
                 st.success(f"{len(df_res)} résultats trouvés !")
