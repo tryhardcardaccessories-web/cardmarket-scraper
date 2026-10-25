@@ -1,45 +1,37 @@
 import streamlit as st
-from scraper import scrape_pokemon_search_results
-from google_sheets import sync_dataframe_to_sheet
+import urllib.parse
 
-st.set_page_config(page_title="KanedaPk - Recherche Pokémon par Prix", layout="wide")
+st.set_page_config(page_title="KanedaPk - Recherche Cardmarket", layout="wide")
 
-st.title("🎴 Recherche Automatique & Extraction des Prix par Pokémon")
+st.title("🎴 Accès Direct & Recherche Cardmarket")
 
 st.markdown("""
-Tapez le nom d'un Pokémon (ex: *Dracaufeu*, *Pikachu*, *Mewtwo*) pour lancer instantanément 
-la recherche sur Cardmarket et extraire **toutes** ses cartes avec leur premier prix.
+Pour éviter les blocages de sécurité (Erreur 403 de Cloudflare sur les serveurs cloud), 
+cette interface génère instantanément le lien de recherche officiel pour le Pokémon de votre choix.
 """)
 
-# Paramètres dans la barre latérale
-st.sidebar.header("Paramètres")
-sheet_name_input = st.sidebar.text_input("Nom de la Google Sheet", value="Pokemon_Cardmarket_Data")
-
-# Champ de saisie unique pour le Pokémon
+# Saisie du nom du Pokémon
 pokemon_query = st.text_input("Nom du Pokémon à rechercher :", value="Dracaufeu")
 
-if st.button("🚀 Lancer la recherche et l'extraction"):
+if st.button("🚀 Générer la recherche Cardmarket"):
     if pokemon_query.strip():
-        with st.spinner(f"Recherche et extraction de toutes les cartes pour '{pokemon_query}' en cours..."):
-            df_result, error_msg = scrape_pokemon_search_results(pokemon_query)
-            
-            if error_msg:
-                st.error(f"Une erreur est survenue : {error_msg}")
-            elif not df_result.empty:
-                st.success(f"Extraction réussie ! {len(df_result)} cartes trouvées pour '{pokemon_query}'.")
-                
-                # Affichage du tableau interactif
-                st.dataframe(df_result, use_container_width=True)
-                
-                # Bouton de synchronisation vers Google Sheets
-                if st.button("📥 Synchroniser ces résultats vers Google Sheets"):
-                    with st.spinner("Envoi vers Google Sheets..."):
-                        success = sync_dataframe_to_sheet(df_result, sheet_name=sheet_name_input)
-                        if success:
-                            st.success("Synchronisation réussie !")
-                        else:
-                            st.error("Échec de la synchronisation (vérifiez vos secrets Google Cloud).")
-            else:
-                st.warning(f"Aucune carte trouvée pour '{pokemon_query}'. Vérifiez l'orthographe.")
+        # Encodage propre du nom pour l'URL Cardmarket
+        encoded_query = urllib.parse.quote(pokemon_query.strip())
+        search_url = f"https://www.cardmarket.com/fr/Pokemon/Products/Search?category=-1&searchString={encoded_query}&searchMode=v2"
+        
+        st.success("Lien généré avec succès !")
+        
+        # Bouton cliquable pour ouvrir la page sur votre propre navigateur
+        st.markdown(f"""
+        <div style="text-align: center; margin: 30px 0;">
+            <a href="{search_url}" target="_blank" style="background-color: #ff4b4b; color: white; padding: 15px 30px; text-decoration: none; font-size: 18px; font-weight: bold; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+                🔗 Ouvrir les résultats pour "{pokemon_query}" sur Cardmarket
+            </a>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # Champ de secours pour copier le lien directement
+        st.text_input("URL directe de recherche (copiable) :", value=search_url)
+        
     else:
         st.error("Veuillez entrer un nom de Pokémon valide.")
