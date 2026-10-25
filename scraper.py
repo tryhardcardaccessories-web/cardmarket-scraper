@@ -1,69 +1,77 @@
 from curl_cffi import requests
 from bs4 import BeautifulSoup
-import pandas as pd
 import urllib.parse
+import pandas as pd
 
-def scrape_pokemon_search_results(pokemon_name: str):
+def extraire_prix_cartes_pokemon_online(pokemon_name: str):
     """
-    Recherche un Pokémon sur Cardmarket en contournant Cloudflare (403) 
-    grâce à curl_cffi et extrait toutes les cartes correspondantes.
+    Scrape en ligne les liens /Singles/ d'un Pokémon sur Cardmarket 
+    en utilisant curl_cffi pour simuler un vrai navigateur et éviter le 403.
     """
     encoded_query = urllib.parse.quote(pokemon_name.strip())
     search_url = f"https://www.cardmarket.com/fr/Pokemon/Products/Search?category=-1&searchString={encoded_query}&searchMode=v2"
 
     try:
-        # Utilisation de l'émulation Chrome pour contourner le blocage 403 de Cloudflare
-        response = requests.get(search_url, impersonate="chrome120", timeout=20)
+        # Utilisation de l'émulation Chrome pour contourner les filtres Cloudflare en ligne
+        response = requests.get(search_url, impersonate="chrome120", timeout=25)
         
         if response.status_code != 200:
-            return pd.DataFrame(), f"Erreur HTTP : {response.status_code}"
+            return pd.DataFrame(), f"Erreur HTTP lors de la recherche : {response.status_code}"
 
         soup = BeautifulSoup(response.text, 'html.parser')
-        cards_data = []
+        
+        # Récupération de tous les liens uniques contenant /Singles/
+        liens_cartes = set()
+        for a in soup.find_all('a', href=True):
+            href = a['href']
+            if "/Pokemon/Products/Singles/" in href:
+                if not href.startswith("http"):
+                    href = "https://www.cardmarket.com" + href
+                liens_cartes.add(href)
 
-        # Ciblage des lignes de produits dans les résultats de recherche Cardmarket
-        rows = soup.select("div.table-body div.table-row, div.row-product, tr")
+        if not liens_cartes:
+            return pd.DataFrame(), "Aucun lien de carte trouvé pour ce Pokémon."
 
-        for row in rows:
+        resultats = []
+
+        # Limitation pour éviter le timeout de l'application en ligne (max 15-20 cartes par recherche)
+        liens_limites = list(liens_cartes)[:20]
+
+        for url_carte in liens_limites:
             try:
-                # Extraction du nom et du lien de la carte
-                link_elem = row.select_one("a.no-link-style, a.row-link, a")
-                if not link_elem or not link_elem.has_attr('href'):
+                res_carte = requests.get(url_carte, impersonate="chrome120", timeout=10)
+                if res_carte.status_code != 200:
                     continue
-                    
-                card_name = link_elem.get_text(strip=True)
-                card_url = link_elem['href']
-                if not card_url.startswith("http"):
-                    card_url = "https://www.cardmarket.com" + card_url
-
-                # Extraction du premier prix (prix de départ)
-                price_elem = row.select_one("span.price, span.color-primary, td.price")
-                price_text = price_elem.get_text(strip=True) if price_elem else "0"
                 
-                # Nettoyage et conversion du prix en float
-                price_clean = (price_text.replace("€", "")
-                                          .replace("from", "")
-                                          .replace("à partir de", "")
-                                          .replace(",", ".")
-                                          .strip().split()[0])
-                try:
-                    price = float(price_clean)
-                except:
-                    price = 0.0
+                soup_carte = BeautifulSoup(res_carte.text, 'html.parser')
+                
+                # Nom de la carte
+                nom_elem = soup_carte.select_one("h1")
+                nom_carte = nom_elem.get_text(strip=True) if nom_elem else "Inconnu"
 
-                if card_name and card_name != "Inconnu" and len(card_name) > 2:
-                    cards_data.append({
-                        "Nom de la carte": card_name,
-                        "Premier Prix (€)": price,
-                        "Lien Cardmarket": card_url
-                    })
+                # Extraction du premier prix
+                prix_elem = soup_carte.select_one("span.price, .price-container")
+                prix_text = prix_elem.get_text(strip=True) if prix_elem else "0"
+                
+                prix_clean = (prix_text.replace("€", "")
+                                      .replace("from", "")
+                                      .replace("à partir de", "")
+                                      .replace(",", ".")
+                                      .strip().split()[0])
+                try:
+                    prix = float(prix_clean)
+                except:
+                    prix = 0.0
+
+                resultats.append({
+                    "Nom de la carte": nom_carte,
+                    "Premier Prix (€)": prix,
+                    "Lien Cardmarket": url_carte
+                })
             except Exception:
                 continue
 
-        df = pd.DataFrame(cards_data)
-        if not df.empty:
-            df = df.drop_duplicates(subset=["Nom de la carte"]).reset_index(drop=True)
-            
+        df = pd.DataFrame(resultats)
         return df, None
 
     except Exception as e:
