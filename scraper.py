@@ -1,24 +1,20 @@
-import requests
+from curl_cffi import requests
 from bs4 import BeautifulSoup
 import pandas as pd
 import urllib.parse
 
 def scrape_pokemon_search_results(pokemon_name: str):
     """
-    Recherche un Pokémon sur Cardmarket et extrait toutes les cartes correspondantes
-    avec leur premier prix et leur lien direct.
+    Recherche un Pokémon sur Cardmarket en contournant Cloudflare (403) 
+    grâce à curl_cffi et extrait toutes les cartes correspondantes.
     """
     encoded_query = urllib.parse.quote(pokemon_name.strip())
     search_url = f"https://www.cardmarket.com/fr/Pokemon/Products/Search?category=-1&searchString={encoded_query}&searchMode=v2"
 
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-        "Accept-Language": "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8"
-    }
-
     try:
-        response = requests.get(search_url, headers=headers, timeout=20)
+        # Utilisation de l'émulation Chrome pour contourner le blocage 403 de Cloudflare
+        response = requests.get(search_url, impersonate="chrome120", timeout=20)
+        
         if response.status_code != 200:
             return pd.DataFrame(), f"Erreur HTTP : {response.status_code}"
 
@@ -66,7 +62,6 @@ def scrape_pokemon_search_results(pokemon_name: str):
 
         df = pd.DataFrame(cards_data)
         if not df.empty:
-            # Suppression des doublons potentiels
             df = df.drop_duplicates(subset=["Nom de la carte"]).reset_index(drop=True)
             
         return df, None
