@@ -1,6 +1,6 @@
 streamlit
 pandas
-playwright
 beautifulsoup4
+curl_cffi
 gspread
 oauth2client
