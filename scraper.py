@@ -1,91 +1,80 @@
-import time
-import bs4
-from playwright.sync_api import sync_playwright
 import pandas as pd
+from playwright.sync_api import sync_playwright
 
-def scrape_cardmarket_extension(base_url, lang_code=None, cond_code=None):
+def scrape_cardmarket_extension(target_url: str, lang_code: int = None, min_condition: int = None):
     """
-    Scrape une extension Cardmarket complète en appliquant 
-    les filtres de langue et d'état minimum choisis.
+    Scrape les cartes d'une extension Cardmarket avec Playwright en mode headless,
+    en appliquant les filtres de langue et d'état.
     """
-    # Construction dynamique des paramètres de l'URL
-    params = []
-    if lang_code:
-        params.append(f"language={lang_code}")
-    if cond_code:
-        params.append(f"minCondition={cond_code}")
-    
-    separator = "&" if "?" in base_url else "?"
-    target_url = base_url + separator + "&".join(params) if params else base_url
-
-    results = []
+    data = []
 
     with sync_playwright() as p:
-        # Lancement du navigateur en arrière-plan (headless)
-        browser = p.chromium.launch(headless=True)
+        # Lancement de Chromium avec les arguments de sécurité pour le Cloud
+        browser = p.chromium.launch(
+            headless=True,
+            args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-setuid-sandbox"]
+        )
         context = browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            locale="fr-FR"
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         )
         page = context.new_page()
 
         try:
-            print(f"Connexion à Cardmarket : {target_url}")
-            page.goto(target_url, wait_until="domcontentloaded", timeout=30000)
-            time.sleep(4)  # Pause pour laisser le contenu dynamique et Cloudflare charger
+            print(f"Ouverture de l'URL : {target_url}")
+            page.goto(target_url, timeout=60000)
+            page.wait_for_load_selector = "body"
+            
+            # Gestion des cookies si la popup apparaît
+            try:
+                cookie_button = page.locator("button:has-text('Accepter'), button:has-text('Accept')")
+                if cookie_button.count() > 0:
+                    cookie_button.first.click(timeout=3000)
+            except:
+                pass
 
-            soup = bs4.BeautifulSoup(page.content(), "html.parser")
+            # Récupération des lignes de cartes dans le tableau Cardmarket
+            # (S'adapte à la structure standard des listes de prix de cartes singles)
+            rows = page.locator("div.table-body div.table-row").all()
+            
+            if not rows:
+                # Fallback sur les tableaux classiques HTML si le DOM est différent
+                rows = page.locator("table.table tr").all()
 
-            # Ciblage des lignes du tableau de l'extension sur Cardmarket
-            rows = soup.select("div.table-body div.row") or soup.select("table tbody tr")
+            print(f"{len(rows)} éléments bruts trouvés sur la page.")
 
             for row in rows:
                 try:
-                    # 1. Extraction du nom et du lien de la carte
-                    link_elem = row.find("a", href=True)
-                    if not link_elem:
-                        continue
-                    
-                    card_name = link_elem.text.strip().split('\n')[0]
-                    href = link_elem["href"]
-                    card_url = "https://www.cardmarket.com" + href if not href.startswith("http") else href
+                    # Extraction basique du nom et des prix (à adapter selon les classes exactes ciblées)
+                    cols = row.locator("td").all()
+                    if len(cols) < 3:
+                        # Si le design utilise des div flex
+                        cols = row.locator("div.col").all()
 
-                    # 2. Détection de la variante (Standard vs Reverse Holo)
-                    variant = "Reverse Holo" if "reverse" in card_name.lower() else "Standard"
+                    if len(cols) >= 2:
+                        # Exemple d'extraction de texte (Nom, Prix, etc.)
+                        name_element = row.locator("a.no-link-style, a").first
+                        name = name_element.inner_text().strip() if name_element.count() > 0 else "Inconnu"
+                        
+                        price_element = row.locator("span.price, price-container").first
+                        price_text = price_element.inner_text().strip() if price_element.count() > 0 else "0"
+                        
+                        # Nettoyage du prix (ex: "1,50 €" -> 1.50)
+                        price_clean = price_text.replace("€", "").replace(",", ".").strip()
+                        try:
+                            price = float(price_clean)
+                        except:
+                            price = 0.0
 
-                    # 3. Extraction des colonnes de prix (Prix Min / Tendance)
-                    cols = row.find_all("div", class_="col") or row.find_all("td")
-                    
-                    trend_price = 0.0
-                    min_price = 0.0
+                        # Détection de la variante (Standard ou Reverse)
+                        variant = "Reverse Holo" if "reverse" in row.inner_text().lower() else "Standard"
 
-                    # Nettoyage et récupération des montants en euros présents dans la ligne
-                    prices = []
-                    for c in cols:
-                        text = c.text.strip()
-                        if "€" in text:
-                            clean_val = text.replace("€", "").replace(",", ".").strip()
-                            try:
-                                prices.append(float(clean_val))
-                            except ValueError:
-                                pass
-
-                    # Attribution selon la structure classique des tableaux Cardmarket
-                    if len(prices) >= 2:
-                        min_price = prices[0]     # Premier prix affiché
-                        trend_price = prices[-1]  # Prix tendance global
-                    elif len(prices) == 1:
-                        min_price = prices[0]
-
-                    results.append({
-                        "Nom de la carte": card_name,
-                        "Variante": variant,
-                        "Prix Tendance (€)": trend_price,
-                        "Prix Min (€)": min_price,
-                        "URL": card_url
-                    })
-
-                except Exception:
+                        data.append({
+                            "Nom": name,
+                            "Prix": price,
+                            "Variante": variant,
+                            "Lien": name_element.get_attribute("href") if name_element.count() > 0 else target_url
+                        })
+                except Exception as row_err:
                     continue
 
         except Exception as e:
@@ -93,4 +82,6 @@ def scrape_cardmarket_extension(base_url, lang_code=None, cond_code=None):
         finally:
             browser.close()
 
-    return pd.DataFrame(results)
+    # Transformation en DataFrame Pandas
+    df = pd.DataFrame(data)
+    return df
