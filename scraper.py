@@ -3,18 +3,24 @@ from playwright.sync_api import sync_playwright
 import urllib.parse
 
 def search_cardmarket_pokemon(card_name: str):
-    """
-    Recherche un Pokémon ou une carte spécifique directement sur Cardmarket.
-    """
     data = []
-    # Encodage du nom pour l'URL Cardmarket
     query = urllib.parse.quote(card_name)
     target_url = f"https://www.cardmarket.com/fr/Pokemon/Products/Singles?searchString={query}"
 
     with sync_playwright() as p:
+        # Lancement robuste sans sandbox
         browser = p.chromium.launch(
             headless=True,
-            args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-setuid-sandbox"]
+            args=[
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-accelerated-2d-canvas",
+                "--no-first-run",
+                "--no-zygote",
+                "--single-process",
+                "--disable-gpu"
+            ]
         )
         context = browser.new_context(
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
@@ -22,11 +28,9 @@ def search_cardmarket_pokemon(card_name: str):
         page = context.new_page()
 
         try:
-            print(f"Recherche de : {card_name} sur {target_url}")
             page.goto(target_url, timeout=60000)
             page.wait_for_load_state("domcontentloaded")
             
-            # Gestion des cookies
             try:
                 cookie_button = page.locator("button:has-text('Accepter'), button:has-text('Accept')")
                 if cookie_button.count() > 0:
@@ -34,7 +38,6 @@ def search_cardmarket_pokemon(card_name: str):
             except:
                 pass
 
-            # Récupération des résultats de recherche
             rows = page.locator("div.table-body div.table-row, table.table tr, div.row-product").all()
 
             for row in rows:
